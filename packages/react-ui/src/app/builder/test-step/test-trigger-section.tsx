@@ -20,12 +20,16 @@ import { LoadingSpinner } from '@/components/ui/spinner';
 import { sampleDataApi } from '@/features/flows/lib/sample-data-api';
 import { triggerEventsApi } from '@/features/flows/lib/trigger-events-api';
 import { piecesHooks } from '@/features/pieces/lib/pieces-hook';
+import { api } from '@/lib/api';
 import {
+  ApErrorParams,
+  ErrorCode,
   SeekPage,
   Trigger,
   TriggerEventWithPayload,
   TriggerTestStrategy,
   isNil,
+  parseToJsonIfPossible,
 } from '@activepieces/shared';
 
 import { useBuilderStateContext } from '../builder-hooks';
@@ -175,12 +179,29 @@ const TestTriggerSection = React.memo(
         }
       },
       onError: (error) => {
-        console.error(error);
-        setErrorMessage(
-          testStepUtils.formatErrorMessage(
-            t('Failed to run test step, please ensure settings are correct.'),
-          ),
-        );
+        if (api.isError(error)) {
+          const apError = error.response?.data as ApErrorParams;
+          let message =
+            'Failed to run test step, please ensure settings are correct.';
+          if (apError.code === ErrorCode.TEST_TRIGGER_FAILED) {
+            message = JSON.stringify(
+              {
+                message:
+                  'Failed to run test step, please ensure settings are correct.',
+                error: parseToJsonIfPossible(apError.params.message),
+              },
+              null,
+              2,
+            );
+          }
+          setErrorMessage(message);
+        } else {
+          setErrorMessage(
+            testStepUtils.formatErrorMessage(
+              t('Internal error, please try again later.'),
+            ),
+          );
+        }
       },
     });
 

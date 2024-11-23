@@ -4,6 +4,7 @@ import { t } from 'i18next';
 import JSZip from 'jszip';
 import { TriangleAlert } from 'lucide-react';
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useTelemetry } from '@/components/telemetry-provider';
 import { Button } from '@/components/ui/button';
@@ -30,12 +31,11 @@ import { flowsApi } from '../lib/flows-api';
 export type ImportFlowDialogProps =
   | {
       insideBuilder: false;
-      onRefresh?: () => void;
+      onRefresh: () => void;
     }
   | {
       insideBuilder: true;
       flowId: string;
-      onRefresh?: () => void;
     };
 
 const readTemplateJson = async (
@@ -43,6 +43,7 @@ const readTemplateJson = async (
 ): Promise<FlowTemplate | null> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
+
     reader.onload = () => {
       try {
         const template = JSON.parse(reader.result as string) as FlowTemplate;
@@ -65,10 +66,12 @@ const ImportFlowDialog = (
 ) => {
   const { capture } = useTelemetry();
   const [templates, setTemplates] = useState<FlowTemplate[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [failedFiles, setFailedFiles] = useState<string[]>([]);
+  const navigate = useNavigate();
 
   const { mutate: importFlows, isPending } = useMutation<
     PopulatedFlow[],
@@ -96,36 +99,36 @@ const ImportFlowDialog = (
 
       return Promise.all(importPromises);
     },
-    onSuccess: () => {
+
+    onSuccess: (flows: PopulatedFlow[]) => {
       capture({
         name: TelemetryEventName.FLOW_IMPORTED_USING_FILE,
         payload: {
           location: props.insideBuilder
             ? 'inside the builder'
             : 'inside dashboard',
+          multiple: flows.length > 1,
         },
       });
 
-      if (failedFiles.length) {
-        toast({
-          title: t('Failed to import'),
-          variant: 'destructive',
-          description:
-            t('The following files failed to import: ') +
-            failedFiles.join(', '),
-        });
-      } else {
-        toast({
-          title: t('Import Success'),
-          description: t(
-            `Flow${templates.length === 1 ? '' : 's'} imported successfully.`,
-          ),
-          variant: 'default',
-        });
-      }
+      toast({
+        title: t(`flowsImported`, {
+          flowsCount: flows.length,
+        }),
+        variant: 'default',
+      });
 
+      if (flows.length === 1) {
+        navigate(`/flows/${flows[0].id}`, { replace: true });
+        return;
+      }
       setIsDialogOpen(false);
-      props.onRefresh?.();
+      if (flows.length === 1 || props.insideBuilder) {
+        navigate(`/flow-import-redirect/${flows[0].id}`);
+      }
+      if (!props.insideBuilder) {
+        props.onRefresh();
+      }
     },
     onError: (err) => {
       if (
@@ -167,7 +170,7 @@ const ImportFlowDialog = (
     const file = files[0];
     const newTemplates: FlowTemplate[] = [];
 
-    if (file.type === 'application/zip') {
+    if (file.type === 'application/zip' && !props.insideBuilder) {
       const zip = new JSZip();
       const zipContent = await zip.loadAsync(file);
       const jsonFiles = Object.keys(zipContent.files).filter((fileName) =>
@@ -229,7 +232,7 @@ const ImportFlowDialog = (
         <div className="flex gap-2 items-center">
           <Input
             type="file"
-            accept=".json,.zip"
+            accept={props.insideBuilder ? '.json' : '.json,.zip'}
             ref={fileInputRef}
             onChange={handleFileChange}
           />
